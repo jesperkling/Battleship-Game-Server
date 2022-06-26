@@ -7,18 +7,21 @@ let io = null; // socket.io server instance
 
 const games = [
 	{
-		id: '1',
-		name: '1',
+		id: "room1",
+		name: "Open room 1",
+		neverDelete: true,
 		players: {},
 	},
 	{
-		id: '2',
-		name: '2',
+		id: "room2",
+		name: "Open room 2",
+		neverDelete: true,
 		players: {},
 	},
 	{
-		id: '3',
-		name: '3',
+		id: "room3",
+		name: "Open room 3",
+		neverDelete: true,
 		players: {},
 	},
 ]
@@ -59,11 +62,30 @@ const handleGetGameList = function (callback) {
 }
 
 /**
+ * Checking games
+ *
+ */
+const handleCheckGames = function (game, callback) {
+	let newGame = getGameById(game)
+
+	if (!newGame) {
+		callback({
+			success: true,
+		})
+		return
+	}
+
+	callback({
+		success: false,
+	})
+}
+
+/**
  * Handle a user disconnecting
  *
  */
 const handleDisconnect = function() {
-	debug(`Client ${this.id} disconnected :(`);
+	debug(`Client ${this.id} disconnected :(`)
 
 	const game = getGameByUserId(this.id)
 
@@ -75,7 +97,13 @@ const handleDisconnect = function() {
 
 	delete game.players[this.id]
 
+	if (Object.keys(game.players).length === 0 && game.neverDelete === false) {
+		delete game.id
+		delete game.name
+	}
+
 	this.broadcast.to(game.id).emi('player:list', game.players)
+	io.emit('new-game-list')
 }
 
 /**
@@ -87,7 +115,20 @@ const handlePlayerJoined = async function (username, game_id, callback) {
 
 	this.join(game_id)
 
-	const game = getGameById(game_id)
+	let game = getGameById(game_id)
+
+	if (!game) {
+		let newGame = {
+			id: game_id,
+			name: game_id,
+			neverDelete: false,
+			players: {},
+		}
+		games.push(newGame)
+		game = getGameById(game_id)
+
+		console.log('new game:', game)
+	}
 
 	game.players[this.id] = username
 
@@ -107,17 +148,24 @@ const handlePlayerJoined = async function (username, game_id, callback) {
  *
  */
 const handlePlayerLeft = async function (username, game_id) {
-	debug(`User ${username} with socket id ${this.id} left room '${game_id}'`);
+	debug(`User ${username} with socket id ${this.id} left room '${game_id}'`)
 
-	this.leave(game_id);
+	this.leave(game_id)
 
-	const game = getGameById(game_id);
+	const game = getGameById(game_id)
 
-	delete game.players[this.id];
+	delete game.players[this.id]
 
-	this.broadcast.to(game.id).emit('player:left', username);
+	if (Object.keys(game.players).length === 0 && game.neverDelete === false) {
+		delete game.id
+		delete game.name
+		console.log('game after delete:', game)
+	}
 
-	io.to(game.id).emit('user:list', game.players);
+	this.broadcast.to(game.id).emit('player:left', username)
+
+	io.to(game.id).emit('user:list', game.players)
+	io.emit('new-game-list')
 }
 
 /**
@@ -139,6 +187,8 @@ module.exports = function(socket, _io) {
 	socket.on('update-list', () => {
 		io.emit('new-game-list')
 	})
+
+	socket.on('check-games', handleCheckGames)
 
 	socket.on('player:left', handlePlayerLeft)
 
